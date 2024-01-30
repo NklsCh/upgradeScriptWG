@@ -72,9 +72,8 @@ $upgradeList | Format-Table
 Write-Host "Found $($upgradeList.Count) software to upgrade"
 
 $toSkip = @(
-    'Guilded.Guilded',
-    'PostgreSQL.PostgreSQL',
-    'OpenVPNTechnologies.OpenVPN'
+    'PackageIDTo.Exclude',
+    '...'
 )
 
 foreach ($package in $upgradeList) 
