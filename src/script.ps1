@@ -2,10 +2,40 @@
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 class Software {
-    [string]$Name
     [string]$Id
     [string]$Version
     [string]$AvailableVersion
+    [bool]$SkipBool
+    [string]$Skip
+}
+
+class Upgrade {
+    [string]$Id
+    [string]$Status
+    [string]$PreviousVersion
+    [string]$NewVersion
+}
+
+$toSkip = @()
+if ((Test-Path "ids.txt")) {
+    $toSkip = Get-Content "ids.txt"
+}
+
+
+if ($toSkip.Length -le 0) {
+    #Write-Host "You are not skipping any software upgrades. If you want to skip some, please enter their IDs in the script."
+    #exit
+    Write-Host "You are not skipping any software upgrades. Do you want to skip some? (y/n)"
+    $answer = Read-Host
+    if ($answer -eq "y") {
+        Write-Host "Please enter the IDs of the software you want to skip, separated by a comma."
+        $answer = Read-Host
+        $toSkip += $answer.Split(',')
+    }
+    else {
+        exit
+    }
+    Add-Content "ids.txt" $toSkip
 }
 
 $upgradeResult = winget upgrade | Out-String
@@ -52,49 +82,55 @@ For ($i = $fl + 1; $i -le $lines.Length; $i++) {
     if ($lines[$i].Contains("Aktualisierungen") -or $lines[$i].Contains("upgrades available")) { break }
     $line = $lines[$i]
     if ($line.Length -gt ($availableStart + 1) -and -not $line.StartsWith('-') -or $line.StartsWith('Name')) {
-        $name = $line.Substring(0, $idStart).TrimEnd()
         $id = $line.Substring($idStart, $versionStart - $idStart).TrimEnd()
         $version = $line.Substring($versionStart, $availableStart - $versionStart).TrimEnd()
         $available = $line.Substring($availableStart, $sourceStart - $availableStart).TrimEnd()
         $software = [Software]::new()
-        $software.Name = $name
         $software.Id = $id
         $software.Version = $version
         $software.AvailableVersion = $available
+        if (($toSkip -contains $software.Id)) {
+            $software.Skip = "[✓]"
+            $software.SkipBool = $true
+        }
+        else {
+            $software.Skip = "[ ]"
+            $software.SkipBool = $false
+        }
 
         $upgradeList += $software
     }
 }
 
-$upgradeList | Format-Table
+$upgradeList | Format-Table -Property Id, Version, AvailableVersion, Skip
 
-Write-Host "Found $($upgradeList.Count) software to upgrade"
+Write-Host "Found $($upgradeList.Count) software to upgrade | Skip $(($upgradeList | Where-Object { $_.SkipBool }).Count)"
 
-$toSkip = @(
-    'PackageIDTo.Exclude',
-    '...'
-)
 
 foreach ($package in $upgradeList) {
-    if (-not ($toSkip -contains $package.Id)) {
-        Write-Host "Going to upgrade package $($package.id)"
+    if ($package.SkipBool -eq $false) {
         Start-Job -ScriptBlock { winget upgrade $args[0] } -Name $package.id -ArgumentList $package.id | Out-Null
         # & winget upgrade $package.id
-    }
-    else {    
-        Write-Host "Skipped upgrade to package $($package.id)"
     }
 }
 
 # Wait for all jobs to finish and get the results
 $jobs = Invoke-Command -ScriptBlock { Get-Job }
 Wait-Job -Job $jobs | Out-Null
+$upgrades = @()
 foreach ($job in $jobs) {
-    if ($job.State -eq 'Completed') {
-        Write-Host "Upgrade of $($job.Name) completed"
+    $upgrade = [Upgrade]::new()
+    $upgrade.Id = $job.Name
+    $upgrade.Status = $job.State
+    foreach ($package in $upgradeList) {
+        if ($package.Id -eq $job.Name) {
+            $upgrade.PreviousVersion = $package.Version
+            $upgrade.NewVersion = $package.AvailableVersion
+        }
     }
-    else {
-        Write-Host "Upgrade of $($job.Name) failed"
-    }
+    $upgrades += $upgrade
     $job | Remove-Job
 }
+
+Invoke-Command -ScriptBlock { Clear-Host }
+$upgrades | Format-Table
