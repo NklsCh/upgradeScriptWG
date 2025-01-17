@@ -40,7 +40,7 @@ if ($toSkip.Length -le 0) {
         Add-Content "ids.txt" $toSkip
     }
     else {
-        exit
+        Add-Content "ids.txt" ""
     }
 }
 
